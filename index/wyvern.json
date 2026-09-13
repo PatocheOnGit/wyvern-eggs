@@ -202,17 +202,6 @@
           },
           "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/chatbots/twitch/sogebot/egg-soge-bot.json",
           "readme": ""
-        },
-        {
-          "egg": {
-            "name": "\ud83e\udd5a Egg Request",
-            "meta": {
-              "version": "PLCN_v3"
-            },
-            "description": "Suggest a server to build an egg for"
-          },
-          "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/chatbots/.github/ISSUE_TEMPLATE/egg-request.yaml",
-          "readme": ""
         }
       ]
     },
@@ -349,17 +338,6 @@
             "description": "The open-source database for the realtime web"
           },
           "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/database/nosql/rethinkdb/egg-rethinkdb.json",
-          "readme": ""
-        },
-        {
-          "egg": {
-            "name": "\ud83e\udd5a Egg Request",
-            "meta": {
-              "version": "PLCN_v3"
-            },
-            "description": "Suggest a server to build an egg for"
-          },
-          "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/database/.github/ISSUE_TEMPLATE/egg-request.yaml",
           "readme": ""
         }
       ]
@@ -982,17 +960,6 @@
           },
           "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/minecraft/proxy/java/waterfall/egg-waterfall.yaml",
           "readme": ""
-        },
-        {
-          "egg": {
-            "name": "\ud83e\udd5a Egg Request",
-            "meta": {
-              "version": "PLCN_v3"
-            },
-            "description": "Suggest a server to build an egg for"
-          },
-          "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/minecraft/.github/ISSUE_TEMPLATE/egg-request.yaml",
-          "readme": ""
         }
       ]
     },
@@ -1019,17 +986,6 @@
             "description": "The Prometheus monitoring system and time series database."
           },
           "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/monitoring/prometheus/egg-prometheus.json",
-          "readme": ""
-        },
-        {
-          "egg": {
-            "name": "\ud83e\udd5a Egg Request",
-            "meta": {
-              "version": "PLCN_v3"
-            },
-            "description": "Suggest a server to build an egg for"
-          },
-          "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/monitoring/.github/ISSUE_TEMPLATE/egg-request.yaml",
           "readme": ""
         }
       ]
@@ -1167,17 +1123,6 @@
             "description": "Creates a container that runs rust with cargo."
           },
           "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/generic/rust/egg-rust-generic.json",
-          "readme": ""
-        },
-        {
-          "egg": {
-            "name": "\ud83e\udd5a Egg Request",
-            "meta": {
-              "version": "PLCN_v3"
-            },
-            "description": "Suggest a server to build an egg for"
-          },
-          "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/generic/.github/ISSUE_TEMPLATE/egg-request.yaml",
           "readme": ""
         }
       ]
@@ -1370,17 +1315,6 @@
             "description": "Yarr is a selfhosted feed aggregator"
           },
           "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/software/yarr/egg-yarr.yaml",
-          "readme": ""
-        },
-        {
-          "egg": {
-            "name": "\ud83e\udd5a Egg Request",
-            "meta": {
-              "version": "PLCN_v3"
-            },
-            "description": "Suggest a server to build an egg for"
-          },
-          "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/software/.github/ISSUE_TEMPLATE/egg-request.yaml",
           "readme": ""
         }
       ]
@@ -2145,17 +2079,6 @@
             "description": "Zandronum is a multiplayer oriented port, based off Skulltag, for Doom and Doom II by id Software.\r\n\r\nThis egg uses the Freedoom WAD by default."
           },
           "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/games-standalone/doom/zandronum/egg-zandronum.json",
-          "readme": ""
-        },
-        {
-          "egg": {
-            "name": "\ud83e\udd5a Egg Request",
-            "meta": {
-              "version": "PLCN_v3"
-            },
-            "description": "Suggest a server to build an egg for"
-          },
-          "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/games-standalone/.github/ISSUE_TEMPLATE/egg-request.yaml",
           "readme": ""
         }
       ]
@@ -3647,17 +3570,6 @@
           },
           "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/games-steamcmd/zombie_survival_game_online/egg-zombie-survival-game-online.json",
           "readme": ""
-        },
-        {
-          "egg": {
-            "name": "\ud83e\udd5a Egg Request",
-            "meta": {
-              "version": "PLCN_v3"
-            },
-            "description": "Suggest a server to build an egg for"
-          },
-          "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/games-steamcmd/.github/ISSUE_TEMPLATE/egg-request.yaml",
-          "readme": ""
         }
       ]
     },
@@ -3684,33 +3596,6 @@
             "description": "A simple \"empty\" egg that acts as a private SFTP storage share by utilizing Pterodactyl's built in SFTP system for servers. Sub-users can be added to the server by the owner to allow additional people to access the share. \"Starting\" the server performs no actions and it should be left off."
           },
           "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/storage/sftp_storage_share/egg-s-f-t-p-storage-share.json",
-          "readme": ""
-        },
-        {
-          "egg": {
-            "name": "\ud83e\udd5a Egg Request",
-            "meta": {
-              "version": "PLCN_v3"
-            },
-            "description": "Suggest a server to build an egg for"
-          },
-          "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/storage/.github/ISSUE_TEMPLATE/egg-request.yaml",
-          "readme": ""
-        }
-      ]
-    },
-    {
-      "nest_type": "Tooling",
-      "Eggs": [
-        {
-          "egg": {
-            "name": "\ud83e\udd5a Egg Request",
-            "meta": {
-              "version": "PLCN_v3"
-            },
-            "description": "Suggest a server to build an egg for"
-          },
-          "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/tooling/.github/ISSUE_TEMPLATE/egg-request.yaml",
           "readme": ""
         }
       ]
@@ -3782,17 +3667,6 @@
             "description": "The Open Source Webinterface For TeamSpeak Servers"
           },
           "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/voice/ts3_manager/egg-t-s3-manager.json",
-          "readme": ""
-        },
-        {
-          "egg": {
-            "name": "\ud83e\udd5a Egg Request",
-            "meta": {
-              "version": "PLCN_v3"
-            },
-            "description": "Suggest a server to build an egg for"
-          },
-          "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/voice/.github/ISSUE_TEMPLATE/egg-request.yaml",
           "readme": ""
         }
       ]
