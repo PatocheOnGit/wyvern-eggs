@@ -1,0 +1,272 @@
+_comment: 'Wyvern: one egg for every Java Minecraft flavour.'
+meta:
+  version: PLCN_v3
+  update_url: 'https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/minecraft/java/wyvern/egg-minecraft.yaml'
+exported_at: '2026-09-15T00:00:00+00:00'
+name: Minecraft
+author: https://github.com/PatocheOnGit/wyvern-eggs
+uuid: 7b1a9f24-5c3e-4d80-9a6f-2e8c41b7d905
+description: 'Vanilla, Paper, Purpur, Fabric, Forge or NeoForge, picked at install time. Each flavour is resolved from its own official API, so the version list is never stale.'
+tags:
+  - minecraft
+features:
+  - eula
+  - java_version
+  - pid_limit
+docker_images:
+  'Java 25': 'ghcr.io/pelican-eggs/yolks:java_25'
+  'Java 21': 'ghcr.io/pelican-eggs/yolks:java_21'
+  'Java 17': 'ghcr.io/pelican-eggs/yolks:java_17'
+  'Java 11': 'ghcr.io/pelican-eggs/yolks:java_11'
+  'Java 8': 'ghcr.io/pelican-eggs/yolks:java_8'
+file_denylist: {  }
+startup_commands:
+  Default: 'java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.ansi=true $( [[ -f user_jvm_args.txt ]] && printf %s "@user_jvm_args.txt " )$( [[ ! -f unix_args.txt ]] && printf %s "-jar {{SERVER_JARFILE}}" || printf %s "@unix_args.txt" ) nogui'
+config:
+  files:
+    server.properties:
+      parser: properties
+      find:
+        server-ip: ''
+        server-port: '{{server.allocations.default.port}}'
+        query.port: '{{server.allocations.default.port}}'
+  startup:
+    done: ')! For help, type '
+  logs: {  }
+  stop: stop
+scripts:
+  installation:
+    script: |-
+      #!/bin/bash
+      # Wyvern Minecraft installer.
+      #
+      # One script for six server flavours. Each is resolved from its own upstream API —
+      # there is no shared index — and every endpoint here was checked against a real
+      # response before it was written down.
+      #
+      # Server files: /mnt/server
+
+      set -uo pipefail
+
+      mkdir -p /mnt/server
+      cd /mnt/server || exit 1
+
+      LOADER="$(echo "${MC_LOADER:-paper}" | tr '[:upper:]' '[:lower:]' | tr -d ' ')"
+      VERSION="$(echo "${MC_VERSION:-latest}" | tr -d ' ')"
+      BUILD="$(echo "${MC_BUILD:-latest}" | tr -d ' ')"
+      JAR="${SERVER_JARFILE:-server.jar}"
+      [[ "$JAR" == *.jar ]] || JAR="${JAR}.jar"
+
+      fail() { echo "!! $*"; exit 1; }
+      note() { echo ">> $*"; }
+
+      # A previous install may have left the other kind of launcher behind. Forge and
+      # NeoForge are told apart from everything else by this file, so a stale one would
+      # send the startup command down the wrong branch.
+      rm -f unix_args.txt
+
+      note "flavour: ${LOADER}  version: ${VERSION}  build: ${BUILD}"
+
+      case "$LOADER" in
+
+      vanilla)
+          MANIFEST="https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
+          DATA="$(curl -fsSL "$MANIFEST")" || fail "could not reach Mojang"
+          [ "$VERSION" = "latest" ] && VERSION="$(echo "$DATA" | jq -r '.latest.release')"
+
+          META="$(echo "$DATA" | jq -r --arg v "$VERSION" '.versions[] | select(.id==$v) | .url')"
+          [ -z "$META" ] && fail "Minecraft ${VERSION} is not in Mojang's manifest"
+
+          URL="$(curl -fsSL "$META" | jq -r '.downloads.server.url // empty')"
+          [ -z "$URL" ] && fail "Minecraft ${VERSION} publishes no server jar"
+
+          note "downloading vanilla ${VERSION}"
+          curl -fsSL -o "$JAR" "$URL" || fail "download failed"
+          ;;
+
+      paper)
+          BASE="https://fill.papermc.io/v3/projects/paper"
+          [ "$VERSION" = "latest" ] && VERSION="$(curl -fsSL "$BASE" | jq -r '.versions | to_entries | .[0].value[0]')"
+
+          BUILDS="$(curl -fsSL "${BASE}/versions/${VERSION}/builds")" || fail "Paper has no builds for ${VERSION}"
+
+          if [ "$BUILD" = "latest" ]; then
+              URL="$(echo "$BUILDS" | jq -r '.[0].downloads["server:default"].url // empty')"
+          else
+              URL="$(echo "$BUILDS" | jq -r --argjson b "$BUILD" '.[] | select(.id==$b) | .downloads["server:default"].url // empty')"
+          fi
+          [ -z "$URL" ] && fail "no Paper build ${BUILD} for ${VERSION}"
+
+          note "downloading Paper ${VERSION} build ${BUILD}"
+          curl -fsSL -o "$JAR" "$URL" || fail "download failed"
+          ;;
+
+      purpur)
+          BASE="https://api.purpurmc.org/v2/purpur"
+          [ "$VERSION" = "latest" ] && VERSION="$(curl -fsSL "$BASE" | jq -r '.metadata.current')"
+
+          note "downloading Purpur ${VERSION} build ${BUILD}"
+          curl -fsSL -o "$JAR" "${BASE}/${VERSION}/${BUILD}/download" || fail "no Purpur ${VERSION} build ${BUILD}"
+          ;;
+
+      fabric)
+          META="https://meta.fabricmc.net/v2/versions"
+          [ "$VERSION" = "latest" ] && VERSION="$(curl -fsSL "${META}/game" | jq -r '[.[] | select(.stable)][0].version')"
+          [ "$BUILD" = "latest" ] && BUILD="$(curl -fsSL "${META}/loader" | jq -r '[.[] | select(.stable)][0].version')"
+          INSTALLER="$(curl -fsSL "${META}/installer" | jq -r '[.[] | select(.stable)][0].version')"
+
+          note "downloading Fabric ${VERSION} loader ${BUILD} (installer ${INSTALLER})"
+          curl -fsSL -o "$JAR" "${META}/loader/${VERSION}/${BUILD}/${INSTALLER}/server/jar" \
+              || fail "Fabric has no server jar for ${VERSION} / ${BUILD}"
+          ;;
+
+      forge|neoforge)
+          if [ "$LOADER" = "forge" ]; then
+              PROMOS="$(curl -fsSL https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json)" \
+                  || fail "could not reach Forge"
+
+              if [ "$VERSION" = "latest" ]; then
+                  VERSION="$(echo "$PROMOS" | jq -r '.promos | keys[]' | sed 's/-.*//' | sort -V | tail -1)"
+              fi
+
+              CHANNEL="$BUILD"
+              [ "$CHANNEL" = "latest" ] && CHANNEL="recommended"
+
+              FV="$(echo "$PROMOS" | jq -r --arg k "${VERSION}-${CHANNEL}" '.promos[$k] // empty')"
+              [ -z "$FV" ] && FV="$(echo "$PROMOS" | jq -r --arg k "${VERSION}-latest" '.promos[$k] // empty')"
+              [ -z "$FV" ] && fail "Forge publishes nothing for Minecraft ${VERSION}"
+
+              FULL="${VERSION}-${FV}"
+              URL="https://maven.minecraftforge.net/net/minecraftforge/forge/${FULL}/forge-${FULL}-installer.jar"
+              VENDOR="libraries/net/minecraftforge/forge"
+          else
+              # NeoForge encodes the Minecraft version in its own, and writes "no patch" as a
+              # zero where Mojang writes nothing: 21.0.x is 1.21, 26.2.0.x is 26.2.
+              XML="$(curl -fsSL https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml)" \
+                  || fail "could not reach NeoForge"
+              ALL="$(echo "$XML" | grep -oE '<version>[^<]+</version>' | sed -E 's|</?version>||g' | grep -v -- '-')"
+
+              if [ "$BUILD" != "latest" ]; then
+                  NF="$BUILD"
+              else
+                  if [ "$VERSION" = "latest" ]; then
+                      NF="$(echo "$ALL" | tail -1)"
+                  else
+                      case "$VERSION" in
+                          1.*)
+                              REST="${VERSION#1.}"
+                              case "$REST" in
+                                  *.*) FAMILY="$REST" ;;
+                                  *)   FAMILY="${REST}.0" ;;
+                              esac
+                              ;;
+                          *)
+                              DOTS="${VERSION//[^.]/}"
+                              if [ "${#DOTS}" -eq 1 ]; then FAMILY="${VERSION}.0"; else FAMILY="$VERSION"; fi
+                              ;;
+                      esac
+                      NF="$(echo "$ALL" | grep -E "^${FAMILY}\.[0-9]+$" | tail -1)"
+                  fi
+              fi
+              [ -z "$NF" ] && fail "NeoForge publishes nothing for Minecraft ${VERSION}"
+              BUILD="$NF"
+
+              URL="https://maven.neoforged.net/releases/net/neoforged/neoforge/${NF}/neoforge-${NF}-installer.jar"
+              VENDOR="libraries/net/neoforged/neoforge"
+          fi
+
+          note "downloading ${LOADER} installer"
+          curl -fsSL -o installer.jar "$URL" || fail "installer download failed: $URL"
+
+          # Drop the previous install's libraries so switching version cannot leave two sets
+          # of args behind.
+          rm -rf "$VENDOR"
+
+          note "running the ${LOADER} installer — this writes the launcher, it is not the server"
+          java -jar installer.jar --installServer \
+              || fail "the installer failed. If this server has unlimited memory, give the install container a real limit in the Wings config — the installer cannot run without one."
+
+          rm -f installer.jar installer.jar.log
+
+          # 1.17 and newer ship an args file instead of a runnable jar; the startup command
+          # looks for exactly this path to decide how to launch.
+          if compgen -G "${VENDOR}/*/unix_args.txt" > /dev/null; then
+              ln -sf "$(compgen -G "${VENDOR}/*/unix_args.txt" | head -1)" unix_args.txt
+              note "linked unix_args.txt — the server will launch from it"
+          else
+              CANDIDATE="$(ls forge-*.jar neoforge-*.jar 2>/dev/null | grep -v installer | head -1)"
+              [ -n "$CANDIDATE" ] && mv "$CANDIDATE" "$JAR" && note "older layout: renamed ${CANDIDATE} to ${JAR}"
+          fi
+          ;;
+
+      *)
+          fail "unknown flavour: ${LOADER}"
+          ;;
+      esac
+
+      # Somewhere for content to land, so an installer does not have to create it later.
+      case "$LOADER" in
+          paper|purpur)         mkdir -p plugins ;;
+          fabric|forge|neoforge) mkdir -p mods ;;
+      esac
+
+      if [ ! -f server.properties ]; then
+          note "writing a server.properties the panel can edit"
+          {
+              echo "#Minecraft server properties"
+              echo "server-port=25565"
+              echo "server-ip="
+          } > server.properties
+      fi
+
+      note "done — ${LOADER} ${VERSION} is installed"
+    container: 'ghcr.io/pelican-eggs/installers:java_21'
+    entrypoint: bash
+variables:
+  -
+    name: 'Server flavour'
+    description: "Which server to install.\n\nvanilla — Mojang's own, no plugins or mods.\npaper — high-performance Bukkit fork, plugins.\npurpur — Paper fork with more configuration, plugins.\nfabric — lightweight mod loader, mods.\nforge — the long-standing mod loader, mods.\nneoforge — maintained Forge successor, mods.\n\nChanging this and reinstalling switches the server over."
+    env_variable: MC_LOADER
+    default_value: paper
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - string
+      - 'in:vanilla,paper,purpur,fabric,forge,neoforge'
+    sort: 1
+  -
+    name: 'Minecraft version'
+    description: "The Minecraft version to install, or latest.\n\nWhat is available depends on the flavour: Forge and NeoForge only support a subset."
+    env_variable: MC_VERSION
+    default_value: latest
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - string
+      - 'max:24'
+    sort: 2
+  -
+    name: 'Build'
+    description: "Which build of that version, or latest.\n\nPaper and Purpur number their builds. Fabric wants a loader version. Forge takes recommended or latest. NeoForge takes a full version such as 26.2.0.88. Vanilla ignores this."
+    env_variable: MC_BUILD
+    default_value: latest
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - string
+      - 'max:32'
+    sort: 3
+  -
+    name: 'Server jar file'
+    description: 'The jar the server launches from. Ignored on Forge and NeoForge 1.17+, which launch from an argument file instead.'
+    env_variable: SERVER_JARFILE
+    default_value: server.jar
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - 'regex:/^([\w\d._-]+)(\.jar)$/'
+    sort: 4

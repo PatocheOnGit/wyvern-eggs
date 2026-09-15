@@ -589,6 +589,17 @@
         },
         {
           "egg": {
+            "name": "Minecraft",
+            "meta": {
+              "version": "PLCN_v3"
+            },
+            "description": "Vanilla, Paper, Purpur, Fabric, Forge or NeoForge, picked at install time. Each flavour is resolved from its own official API, so the version list is never stale."
+          },
+          "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/minecraft/java/wyvern/egg-minecraft.yaml",
+          "readme": ""
+        },
+        {
+          "egg": {
             "name": "Modrinth Generic",
             "meta": {
               "version": "PLCN_v3"
