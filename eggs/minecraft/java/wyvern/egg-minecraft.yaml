@@ -6,13 +6,18 @@ exported_at: '2026-09-15T00:00:00+00:00'
 name: Minecraft
 author: https://github.com/PatocheOnGit/wyvern-eggs
 uuid: 7b1a9f24-5c3e-4d80-9a6f-2e8c41b7d905
-description: 'Vanilla, Paper, Purpur, Fabric, Forge or NeoForge, picked at install time. Each flavour is resolved from its own official API, so the version list is never stale.'
+description: 'Vanilla, Paper, Purpur, Folia, Fabric, Quilt, Forge or NeoForge, picked at install time. Each flavour is resolved from its own official API, so the version list is never stale.'
 tags:
   - minecraft
 features:
   - eula
   - java_version
   - pid_limit
+  - mc_port
+  - mc_memory
+  - mc_dependency
+  - mc_client_mod
+  - mc_world_version
 docker_images:
   'Java 25': 'ghcr.io/pelican-eggs/yolks:java_25'
   'Java 21': 'ghcr.io/pelican-eggs/yolks:java_21'
@@ -21,7 +26,7 @@ docker_images:
   'Java 8': 'ghcr.io/pelican-eggs/yolks:java_8'
 file_denylist: {  }
 startup_commands:
-  Default: 'java -Xms128M -XX:MaxRAMPercentage=95.0 -Dterminal.jline=false -Dterminal.ansi=true $( [[ -f user_jvm_args.txt ]] && printf %s "@user_jvm_args.txt " )$( [[ ! -f unix_args.txt ]] && printf %s "-jar {{SERVER_JARFILE}}" || printf %s "@unix_args.txt" ) nogui'
+  Default: 'java -Xms128M -XX:MaxRAMPercentage=95.0 $( [[ "{{AIKAR_FLAGS}}" =~ ^(1|true)$ ]] && printf %s "-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:G1MixedGCLiveThresholdPercent=90 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1 -Dusing.aikars.flags=https://mcflags.emc.gs -Daikars.new.flags=true $( (( ${SERVER_MEMORY:-0} > 12288 )) && printf %s "-XX:G1NewSizePercent=40 -XX:G1MaxNewSizePercent=50 -XX:G1HeapRegionSize=16M -XX:G1ReservePercent=15 -XX:InitiatingHeapOccupancyPercent=20" || printf %s "-XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:InitiatingHeapOccupancyPercent=15" ) " ) -Dterminal.jline=false -Dterminal.ansi=true $( [[ -f user_jvm_args.txt ]] && printf %s "@user_jvm_args.txt " )$( if [[ -f unix_args.txt ]]; then printf %s "@unix_args.txt"; elif [[ -f quilt-server-launch.jar ]]; then printf %s "-jar quilt-server-launch.jar"; else printf %s "-jar {{SERVER_JARFILE}}"; fi ) nogui'
 config:
   files:
     server.properties:
@@ -40,7 +45,7 @@ scripts:
       #!/bin/bash
       # Wyvern Minecraft installer.
       #
-      # One script for six server flavours. Each is resolved from its own upstream API —
+      # One script for eight server flavours. Each is resolved from its own upstream API —
       # there is no shared index — and every endpoint here was checked against a real
       # response before it was written down.
       #
@@ -60,10 +65,9 @@ scripts:
       fail() { echo "!! $*"; exit 1; }
       note() { echo ">> $*"; }
 
-      # A previous install may have left the other kind of launcher behind. Forge and
-      # NeoForge are told apart from everything else by this file, so a stale one would
-      # send the startup command down the wrong branch.
-      rm -f unix_args.txt
+      # A previous install may have left the other kind of launcher behind. The startup
+      # command branches on these files, so a stale one would pick the wrong launcher.
+      rm -f unix_args.txt quilt-server-launch.jar
 
       note "flavour: ${LOADER}  version: ${VERSION}  build: ${BUILD}"
 
@@ -82,28 +86,35 @@ scripts:
 
           note "downloading vanilla ${VERSION}"
           curl -fsSL -o "$JAR" "$URL" || fail "download failed"
+          BUILD=""
           ;;
 
-      paper)
-          BASE="https://fill.papermc.io/v3/projects/paper"
+      paper|folia)
+          # Folia is Paper's regionised fork, published through the same API.
+          BASE="https://fill.papermc.io/v3/projects/${LOADER}"
           [ "$VERSION" = "latest" ] && VERSION="$(curl -fsSL "$BASE" | jq -r '.versions | to_entries | .[0].value[0]')"
 
           BUILDS="$(curl -fsSL "${BASE}/versions/${VERSION}/builds")" || fail "Paper has no builds for ${VERSION}"
 
           if [ "$BUILD" = "latest" ]; then
               URL="$(echo "$BUILDS" | jq -r '.[0].downloads["server:default"].url // empty')"
+              BUILD="$(echo "$BUILDS" | jq -r '.[0].id // "latest"')"
           else
               URL="$(echo "$BUILDS" | jq -r --argjson b "$BUILD" '.[] | select(.id==$b) | .downloads["server:default"].url // empty')"
           fi
-          [ -z "$URL" ] && fail "no Paper build ${BUILD} for ${VERSION}"
+          [ -z "$URL" ] && fail "no ${LOADER} build ${BUILD} for ${VERSION}"
 
-          note "downloading Paper ${VERSION} build ${BUILD}"
+          note "downloading ${LOADER} ${VERSION} build ${BUILD}"
           curl -fsSL -o "$JAR" "$URL" || fail "download failed"
           ;;
 
       purpur)
           BASE="https://api.purpurmc.org/v2/purpur"
           [ "$VERSION" = "latest" ] && VERSION="$(curl -fsSL "$BASE" | jq -r '.metadata.current')"
+          if [ "$BUILD" = "latest" ]; then
+              RESOLVED="$(curl -fsSL "${BASE}/${VERSION}" | jq -r '.builds.latest // empty')"
+              [ -n "$RESOLVED" ] && BUILD="$RESOLVED"
+          fi
 
           note "downloading Purpur ${VERSION} build ${BUILD}"
           curl -fsSL -o "$JAR" "${BASE}/${VERSION}/${BUILD}/download" || fail "no Purpur ${VERSION} build ${BUILD}"
@@ -120,6 +131,25 @@ scripts:
               || fail "Fabric has no server jar for ${VERSION} / ${BUILD}"
           ;;
 
+      quilt)
+          META="https://meta.quiltmc.org/v3/versions"
+          [ "$VERSION" = "latest" ] && VERSION="$(curl -fsSL "${META}/game" | jq -r '[.[] | select(.stable)][0].version')"
+          [ "$BUILD" = "latest" ] && BUILD="$(curl -fsSL "${META}/loader" | jq -r '[.[].version | select(test("-") | not)][0]')"
+          INSTALLER="$(curl -fsSL "${META}/installer" | jq -r '.[0].url // empty')"
+          [ -z "$INSTALLER" ] && fail "could not reach Quilt"
+
+          note "downloading the Quilt installer"
+          curl -fsSL -o quilt-installer.jar "$INSTALLER" || fail "installer download failed"
+          rm -rf libraries/org/quiltmc/quilt-loader
+
+          # Writes quilt-server-launch.jar, which the startup command looks for, and the
+          # vanilla jar as server.jar, the name that launcher expects.
+          note "installing Quilt ${VERSION} loader ${BUILD}"
+          java -jar quilt-installer.jar install server "$VERSION" "$BUILD" --download-server --install-dir=/mnt/server \
+              || fail "Quilt could not install ${VERSION} / ${BUILD}"
+          rm -f quilt-installer.jar
+          ;;
+
       forge|neoforge)
           if [ "$LOADER" = "forge" ]; then
               PROMOS="$(curl -fsSL https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json)" \
@@ -129,13 +159,19 @@ scripts:
                   VERSION="$(echo "$PROMOS" | jq -r '.promos | keys[]' | sed 's/-.*//' | sort -V | tail -1)"
               fi
 
-              CHANNEL="$BUILD"
-              [ "$CHANNEL" = "latest" ] && CHANNEL="recommended"
+              # An exact Forge version (47.2.0), as a modpack pins it, skips the promotions.
+              if [[ "$BUILD" =~ ^[0-9]+(\.[0-9]+)+$ ]]; then
+                  FV="$BUILD"
+              else
+                  CHANNEL="$BUILD"
+                  [ "$CHANNEL" = "latest" ] && CHANNEL="recommended"
 
-              FV="$(echo "$PROMOS" | jq -r --arg k "${VERSION}-${CHANNEL}" '.promos[$k] // empty')"
-              [ -z "$FV" ] && FV="$(echo "$PROMOS" | jq -r --arg k "${VERSION}-latest" '.promos[$k] // empty')"
+                  FV="$(echo "$PROMOS" | jq -r --arg k "${VERSION}-${CHANNEL}" '.promos[$k] // empty')"
+                  [ -z "$FV" ] && FV="$(echo "$PROMOS" | jq -r --arg k "${VERSION}-latest" '.promos[$k] // empty')"
+              fi
               [ -z "$FV" ] && fail "Forge publishes nothing for Minecraft ${VERSION}"
 
+              BUILD="$FV"
               FULL="${VERSION}-${FV}"
               URL="https://maven.minecraftforge.net/net/minecraftforge/forge/${FULL}/forge-${FULL}-installer.jar"
               VENDOR="libraries/net/minecraftforge/forge"
@@ -144,7 +180,9 @@ scripts:
               # zero where Mojang writes nothing: 21.0.x is 1.21, 26.2.0.x is 26.2.
               XML="$(curl -fsSL https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml)" \
                   || fail "could not reach NeoForge"
-              ALL="$(echo "$XML" | grep -oE '<version>[^<]+</version>' | sed -E 's|</?version>||g' | grep -v -- '-')"
+              # Sorted by version: the file is in publish order, and 1.21.1 backports keep
+              # shipping after 26.x, so its last entry is not the newest NeoForge.
+              ALL="$(echo "$XML" | grep -oE '<version>[^<]+</version>' | sed -E 's|</?version>||g' | grep -v -- '-' | sort -V)"
 
               if [ "$BUILD" != "latest" ]; then
                   NF="$BUILD"
@@ -170,6 +208,15 @@ scripts:
               fi
               [ -z "$NF" ] && fail "NeoForge publishes nothing for Minecraft ${VERSION}"
               BUILD="$NF"
+
+              # Reverse of the rule above: 21.1.77 is 1.21.1, 26.2.0.88 is 26.2.
+              if [ "$VERSION" = "latest" ]; then
+                  MC="${NF%.*}"; MC="${MC%.0}"
+                  case "$NF" in
+                      *.*.*.*) VERSION="$MC" ;;
+                      *)       VERSION="1.${MC}" ;;
+                  esac
+              fi
 
               URL="https://maven.neoforged.net/releases/net/neoforged/neoforge/${NF}/neoforge-${NF}-installer.jar"
               VENDOR="libraries/net/neoforged/neoforge"
@@ -206,8 +253,8 @@ scripts:
 
       # Somewhere for content to land, so an installer does not have to create it later.
       case "$LOADER" in
-          paper|purpur)         mkdir -p plugins ;;
-          fabric|forge|neoforge) mkdir -p mods ;;
+          paper|purpur|folia)          mkdir -p plugins ;;
+          fabric|quilt|forge|neoforge) mkdir -p mods ;;
       esac
 
       if [ ! -f server.properties ]; then
@@ -219,13 +266,18 @@ scripts:
           } > server.properties
       fi
 
+      # Read back by the panel: what "latest" resolved to.
+      mkdir -p .wyvern
+      jq -n --arg loader "$LOADER" --arg minecraft "$VERSION" --arg build "$BUILD" \
+          '{loader: $loader, minecraft: $minecraft, build: $build}' > .wyvern/install.json
+
       note "done — ${LOADER} ${VERSION} is installed"
     container: 'ghcr.io/pelican-eggs/installers:java_21'
     entrypoint: bash
 variables:
   -
     name: 'Server flavour'
-    description: "Which server to install.\n\nvanilla — Mojang's own, no plugins or mods.\npaper — high-performance Bukkit fork, plugins.\npurpur — Paper fork with more configuration, plugins.\nfabric — lightweight mod loader, mods.\nforge — the long-standing mod loader, mods.\nneoforge — maintained Forge successor, mods.\n\nChanging this and reinstalling switches the server over."
+    description: "Which server to install.\n\nvanilla — Mojang's own, no plugins or mods.\npaper — high-performance Bukkit fork, plugins.\npurpur — Paper fork with more configuration, plugins.\nfolia — Paper fork that runs regions on separate threads, Folia plugins only.\nfabric — lightweight mod loader, mods.\nquilt — Fabric fork, Quilt and most Fabric mods.\nforge — the long-standing mod loader, mods.\nneoforge — maintained Forge successor, mods.\n\nChanging this and reinstalling switches the server over."
     env_variable: MC_LOADER
     default_value: paper
     user_viewable: true
@@ -233,7 +285,7 @@ variables:
     rules:
       - required
       - string
-      - 'in:vanilla,paper,purpur,fabric,forge,neoforge'
+      - 'in:vanilla,paper,purpur,folia,fabric,quilt,forge,neoforge'
     sort: 1
   -
     name: 'Minecraft version'
@@ -249,7 +301,7 @@ variables:
     sort: 2
   -
     name: 'Build'
-    description: "Which build of that version, or latest.\n\nPaper and Purpur number their builds. Fabric wants a loader version. Forge takes recommended or latest. NeoForge takes a full version such as 26.2.0.88. Vanilla ignores this."
+    description: "Which build of that version, or latest.\n\nPaper, Purpur and Folia number their builds. Fabric and Quilt want a loader version. Forge takes recommended, latest or an exact version such as 47.2.0. NeoForge takes a full version such as 26.2.0.88. Vanilla ignores this."
     env_variable: MC_BUILD
     default_value: latest
     user_viewable: true
@@ -261,7 +313,7 @@ variables:
     sort: 3
   -
     name: 'Server jar file'
-    description: 'The jar the server launches from. Ignored on Forge and NeoForge 1.17+, which launch from an argument file instead.'
+    description: 'The jar the server launches from. Ignored on Forge and NeoForge 1.17+, which launch from an argument file, and on Quilt, which launches from quilt-server-launch.jar.'
     env_variable: SERVER_JARFILE
     default_value: server.jar
     user_viewable: true
@@ -270,3 +322,14 @@ variables:
       - required
       - 'regex:/^([\w\d._-]+)(\.jar)$/'
     sort: 4
+  -
+    name: "Aikar's flags"
+    description: "Tuned G1 garbage collector flags from Aikar, recommended by PaperMC. They mostly shorten lag spikes on servers with 4 GB of memory or more. Takes effect on the next start."
+    env_variable: AIKAR_FLAGS
+    default_value: '0'
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - boolean
+    sort: 5
