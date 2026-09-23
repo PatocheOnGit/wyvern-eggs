@@ -1,0 +1,278 @@
+_comment: 'Wyvern: FiveM and RedM, with or without txAdmin.'
+meta:
+  version: PLCN_v3
+  update_url: 'https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/games-standalone/gta/fivem/egg-five-m.yaml'
+exported_at: '2026-09-23T00:00:00+00:00'
+name: FiveM
+author: parker@parkervcp.com
+uuid: 238b3cb3-6796-4ba2-8403-5eb30faf1c86
+description: 'FiveM or RedM on the official Linux artifacts, with or without txAdmin. The artifact is picked from Cfx.re''s own changelog API: recommended, optional, latest, critical or an exact build.'
+tags:
+  - fivem
+  - redm
+features:
+  - fivem_license
+  - fivem_port
+  - fivem_game_build
+docker_images:
+  Debian: 'ghcr.io/pelican-eggs/yolks:debian'
+file_denylist: {  }
+startup_commands:
+  Default: '$(pwd)/alpine/opt/cfx-server/ld-musl-x86_64.so.1 --library-path "$(pwd)/alpine/usr/lib/v8/:$(pwd)/alpine/lib/:$(pwd)/alpine/usr/lib/" -- $(pwd)/alpine/opt/cfx-server/FXServer +set citizen_dir $(pwd)/alpine/opt/cfx-server/citizen/ $( [ -n "{{FIVEM_LICENSE}}" ] && printf %s "+set sv_licenseKey {{FIVEM_LICENSE}}" ) +set steam_webApiKey {{STEAM_WEBAPIKEY}} +set sv_maxclients {{MAX_PLAYERS}} +set onesync {{ONESYNC}} $( [[ "{{TXADMIN_ENABLE}}" =~ ^(1|true)$ ]] || printf %s "+exec server.cfg" )'
+config:
+  files:
+    server.cfg:
+      parser: file
+      find:
+        endpoint_add_tcp: 'endpoint_add_tcp "0.0.0.0:{{server.allocations.default.port}}"'
+        endpoint_add_udp: 'endpoint_add_udp "0.0.0.0:{{server.allocations.default.port}}"'
+        sv_hostname: 'sv_hostname "{{server.environment.SERVER_HOSTNAME}}"'
+        'set sv_licenseKey': 'set sv_licenseKey "{{server.environment.FIVEM_LICENSE}}"'
+        'set steam_webApiKey': 'set steam_webApiKey "{{server.environment.STEAM_WEBAPIKEY}}"'
+        sv_maxclients: 'sv_maxclients {{server.environment.MAX_PLAYERS}}'
+        'set onesync': 'set onesync {{server.environment.ONESYNC}}'
+  startup:
+    done:
+      - 'succeeded. Welcome!'
+      - 'All ready! Please access'
+  logs: {  }
+  stop: quit
+scripts:
+  installation:
+    script: |-
+      #!/bin/bash
+      # Wyvern FiveM / RedM installer.
+      #
+      # Server files: /mnt/server
+
+      set -uo pipefail
+
+      apt-get update -y >/dev/null
+      apt-get install -y tar xz-utils file jq git curl >/dev/null
+
+      fail() { echo "!! $*"; exit 1; }
+      note() { echo ">> $*"; }
+
+      mkdir -p /mnt/server/resources /mnt/server/logs
+      cd /mnt/server || exit 1
+
+      CHANNEL="$(echo "${FIVEM_VERSION:-recommended}" | tr -d ' ')"
+      CHANGELOG="$(curl -fsSL https://changelogs-live.fivem.net/api/changelog/versions/linux/server)" \
+          || fail "could not reach Cfx.re's changelog API"
+
+      case "$CHANNEL" in
+          recommended|optional|latest|critical|'')
+              [ -z "$CHANNEL" ] && CHANNEL=recommended
+              URL="$(echo "$CHANGELOG" | jq -r --arg c "$CHANNEL" '.[$c + "_download"] // empty')"
+              ;;
+          *)
+              # An exact build: "35245" or "35245-6efb47…".
+              LISTING="$(curl -fsSL https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/)" \
+                  || fail "could not reach the artifact listing"
+              PATH_PART="$(echo "$LISTING" | grep -oE "\./${CHANNEL}[0-9a-f-]*/fx\.tar\.xz" | head -1)"
+              [ -z "$PATH_PART" ] && fail "no artifact matches ${CHANNEL}"
+              URL="https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/${PATH_PART#./}"
+              ;;
+      esac
+
+      if [ -n "${DOWNLOAD_URL:-}" ]; then
+          curl -fsI "$DOWNLOAD_URL" >/dev/null || fail "the download URL does not answer: ${DOWNLOAD_URL}"
+          URL="$DOWNLOAD_URL"
+      fi
+
+      [ -z "$URL" ] && fail "the changelog API returned no ${CHANNEL} artifact"
+      BUILD="$(echo "$URL" | grep -oE '/[0-9]+-[0-9a-f]+/' | tr -d '/')"
+
+      note "downloading artifact ${BUILD:-$URL}"
+      curl -fsSL "$URL" -o fx.tar.xz || fail "download failed"
+
+      # The previous artifact goes, so a downgrade cannot leave newer files behind.
+      rm -rf alpine
+      tar -xJf fx.tar.xz || fail "could not extract the artifact"
+      rm -f fx.tar.xz run.sh
+
+      # Default resources are added, never overwritten: edits made to them survive a reinstall.
+      note "adding the default resources that are not there yet"
+      rm -rf /tmp/cfx-server-data
+      if git clone -q --depth 1 https://github.com/citizenfx/cfx-server-data.git /tmp/cfx-server-data; then
+          cp -Rn /tmp/cfx-server-data/resources/. resources/
+      else
+          note "could not fetch cfx-server-data; keeping resources/ as it is"
+      fi
+
+      case "${TXHOST_GAME_NAME:-fivem}" in
+          fivem) GAME_TYPE=gta5 ;;
+          redm)  GAME_TYPE=rdr3 ;;
+          *)     fail "unknown game: ${TXHOST_GAME_NAME}" ;;
+      esac
+
+      if [ ! -f server.cfg ]; then
+          note "writing a default server.cfg"
+          cat > server.cfg <<'CFG'
+      # Only the lines the panel manages are rewritten on start: endpoints, sv_hostname,
+      # sv_maxclients, the license and Steam keys, and onesync. Everything else is yours.
+
+      endpoint_add_tcp "0.0.0.0:30120"
+      endpoint_add_udp "0.0.0.0:30120"
+
+      ensure mapmanager
+      ensure chat
+      ensure spawnmanager
+      ensure basic-gamemode
+
+      sv_scriptHookAllowed 0
+      sv_endpointprivacy true
+
+      sets tags "default"
+      sets locale "en-US"
+      sets sv_projectName "My Wyvern server"
+      sets sv_projectDesc "Hosted on Wyvern"
+
+      sv_hostname "My Wyvern server"
+      sv_maxclients 48
+
+      set steam_webApiKey "none"
+      set sv_licenseKey ""
+      set onesync on
+      CFG
+      fi
+
+      # One gamename line, rewritten on every install.
+      sed -i '/^# set gamename/,+1d; /^set gamename /d' server.cfg
+      printf '# set gamename\nset gamename "%s"\n' "$GAME_TYPE" >> server.cfg
+
+      mkdir -p .wyvern
+      jq -n --arg game "${TXHOST_GAME_NAME:-fivem}" --arg channel "$CHANNEL" --arg build "$BUILD" \
+          '{game: $game, channel: $channel, build: $build}' > .wyvern/install.json
+
+      note "done — artifact ${BUILD}"
+    container: 'ghcr.io/pelican-eggs/installers:debian'
+    entrypoint: bash
+variables:
+  -
+    name: 'License key'
+    description: "Your Cfx.re server key, from https://portal.cfx.re. Required unless txAdmin is on, where it can be set in txAdmin instead."
+    env_variable: FIVEM_LICENSE
+    default_value: ''
+    user_viewable: true
+    user_editable: true
+    rules:
+      - nullable
+      - string
+      - 'max:64'
+    sort: 1
+  -
+    name: 'Player slots'
+    description: 'sv_maxclients. 48 without OneSync; up to 2048 with OneSync on, depending on your Cfx.re key.'
+    env_variable: MAX_PLAYERS
+    default_value: '48'
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - 'between:1,2048'
+    sort: 2
+  -
+    name: 'OneSync'
+    description: 'on for OneSync, legacy for the older mode, off to disable it.'
+    env_variable: ONESYNC
+    default_value: 'on'
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - 'in:on,legacy,off'
+    sort: 3
+  -
+    name: 'Server name'
+    description: 'sv_hostname: the name in the server browser.'
+    env_variable: SERVER_HOSTNAME
+    default_value: 'My Wyvern server'
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - string
+      - 'max:120'
+    sort: 4
+  -
+    name: 'Artifact'
+    description: "recommended, optional, latest, critical, or an exact build such as 35245. Reinstall to switch."
+    env_variable: FIVEM_VERSION
+    default_value: recommended
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - string
+      - 'regex:/^(recommended|optional|latest|critical|[0-9]+(-[0-9a-f]+)?)$/'
+    sort: 5
+  -
+    name: 'Download URL'
+    description: 'Overrides the artifact with a direct link to an fx.tar.xz. Install only.'
+    env_variable: DOWNLOAD_URL
+    default_value: ''
+    user_viewable: false
+    user_editable: false
+    rules:
+      - nullable
+      - string
+    sort: 6
+  -
+    name: 'Steam Web API key'
+    description: "Your Steam Web API key, or none. https://steamcommunity.com/dev/apikey"
+    env_variable: STEAM_WEBAPIKEY
+    default_value: none
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - string
+      - 'max:64'
+    sort: 7
+  -
+    name: 'txAdmin'
+    description: 'Run through txAdmin. Its first start prints a PIN in the console, and it then owns server.cfg and the start.'
+    env_variable: TXADMIN_ENABLE
+    default_value: '0'
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - boolean
+    sort: 8
+  -
+    name: 'txAdmin port'
+    description: 'Must be one of this server''s allocations, or txAdmin cannot be reached.'
+    env_variable: TXHOST_TXA_PORT
+    default_value: '40120'
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - integer
+      - 'between:1024,65535'
+    sort: 9
+  -
+    name: 'Game'
+    description: 'fivem or redm. txAdmin only offers recipes for this game.'
+    env_variable: TXHOST_GAME_NAME
+    default_value: fivem
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - 'in:fivem,redm'
+    sort: 10
+  -
+    name: 'txAdmin data path'
+    description: 'Where txAdmin keeps its data.'
+    env_variable: TXHOST_DATA_PATH
+    default_value: /home/container/txData
+    user_viewable: false
+    user_editable: false
+    rules:
+      - required
+      - string
+    sort: 11

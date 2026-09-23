@@ -1524,11 +1524,11 @@
           "egg": {
             "name": "FiveM",
             "meta": {
-              "version": "PLCN_v1"
+              "version": "PLCN_v3"
             },
-            "description": "A new FiveM / RedM egg for the latest builds due to recent changes in FiveM"
+            "description": "FiveM or RedM on the official Linux artifacts, with or without txAdmin. The artifact is picked from Cfx.re's own changelog API: recommended, optional, latest, critical or an exact build."
           },
-          "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/games-standalone/gta/fivem/egg-five-m.json",
+          "download_url": "https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/games-standalone/gta/fivem/egg-five-m.yaml",
           "readme": ""
         },
         {
