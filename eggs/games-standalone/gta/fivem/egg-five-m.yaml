@@ -1,12 +1,12 @@
-_comment: 'Wyvern: FiveM and RedM, with or without txAdmin.'
+_comment: 'Wyvern: FiveM, FiveM Enhanced and RedM, with or without txAdmin.'
 meta:
   version: PLCN_v3
   update_url: 'https://raw.githubusercontent.com/PatocheOnGit/wyvern-eggs/refs/heads/main/eggs/games-standalone/gta/fivem/egg-five-m.yaml'
-exported_at: '2026-09-23T00:00:00+00:00'
+exported_at: '2026-09-24T00:00:00+00:00'
 name: FiveM
 author: parker@parkervcp.com
 uuid: 238b3cb3-6796-4ba2-8403-5eb30faf1c86
-description: 'FiveM or RedM on the official Linux artifacts, with or without txAdmin. The artifact is picked from Cfx.re''s own changelog API: recommended, optional, latest, critical or an exact build.'
+description: 'FiveM, FiveM for GTA V Enhanced or RedM on the official Linux artifacts, with or without txAdmin. Legacy artifacts come from Cfx.re''s changelog API (recommended, optional, latest, critical or an exact build); Enhanced uses the build Cfx.re currently publishes. Console commands work with and without txAdmin.'
 tags:
   - fivem
   - redm
@@ -18,7 +18,7 @@ docker_images:
   Debian: 'ghcr.io/pelican-eggs/yolks:debian'
 file_denylist: {  }
 startup_commands:
-  Default: '$(pwd)/alpine/opt/cfx-server/ld-musl-x86_64.so.1 --library-path "$(pwd)/alpine/usr/lib/v8/:$(pwd)/alpine/lib/:$(pwd)/alpine/usr/lib/" -- $(pwd)/alpine/opt/cfx-server/FXServer +set citizen_dir $(pwd)/alpine/opt/cfx-server/citizen/ $( [ -n "{{FIVEM_LICENSE}}" ] && printf %s "+set sv_licenseKey {{FIVEM_LICENSE}}" ) +set steam_webApiKey {{STEAM_WEBAPIKEY}} +set sv_maxclients {{MAX_PLAYERS}} +set onesync {{ONESYNC}} $( [[ "{{TXADMIN_ENABLE}}" =~ ^(1|true)$ ]] || printf %s "+exec server.cfg" )'
+  Default: 'bash .wyvern/start.sh'
 config:
   files:
     server.cfg:
@@ -26,22 +26,22 @@ config:
       find:
         endpoint_add_tcp: 'endpoint_add_tcp "0.0.0.0:{{server.allocations.default.port}}"'
         endpoint_add_udp: 'endpoint_add_udp "0.0.0.0:{{server.allocations.default.port}}"'
-        sv_hostname: 'sv_hostname "{{server.environment.SERVER_HOSTNAME}}"'
-        'set sv_licenseKey': 'set sv_licenseKey "{{server.environment.FIVEM_LICENSE}}"'
-        'set steam_webApiKey': 'set steam_webApiKey "{{server.environment.STEAM_WEBAPIKEY}}"'
-        sv_maxclients: 'sv_maxclients {{server.environment.MAX_PLAYERS}}'
-        'set onesync': 'set onesync {{server.environment.ONESYNC}}'
+        sv_hostname: 'set sv_hostname "{{server.environment.SERVER_HOSTNAME}}"'
+        'set sv_hostname': 'set sv_hostname "{{server.environment.SERVER_HOSTNAME}}"'
+        sv_maxclients: 'set sv_maxclients {{server.environment.MAX_PLAYERS}}'
+        'set sv_maxclients': 'set sv_maxclients {{server.environment.MAX_PLAYERS}}'
   startup:
     done:
       - 'succeeded. Welcome!'
       - 'All ready! Please access'
+      - 'regex:Found \d+ resources'
   logs: {  }
   stop: quit
 scripts:
   installation:
     script: |-
       #!/bin/bash
-      # Wyvern FiveM / RedM installer.
+      # Wyvern FiveM / FiveM Enhanced / RedM installer.
       #
       # Server files: /mnt/server
 
@@ -53,43 +53,60 @@ scripts:
       fail() { echo "!! $*"; exit 1; }
       note() { echo ">> $*"; }
 
-      mkdir -p /mnt/server/resources /mnt/server/logs
+      mkdir -p /mnt/server/resources /mnt/server/logs /mnt/server/.wyvern
       cd /mnt/server || exit 1
 
+      PLATFORM="${FIVEM_PLATFORM:-legacy}"
       CHANNEL="$(echo "${FIVEM_VERSION:-recommended}" | tr -d ' ')"
-      CHANGELOG="$(curl -fsSL https://changelogs-live.fivem.net/api/changelog/versions/linux/server)" \
-          || fail "could not reach Cfx.re's changelog API"
+      [ -z "$CHANNEL" ] && CHANNEL=recommended
 
-      case "$CHANNEL" in
-          recommended|optional|latest|critical|'')
-              [ -z "$CHANNEL" ] && CHANNEL=recommended
-              URL="$(echo "$CHANGELOG" | jq -r --arg c "$CHANNEL" '.[$c + "_download"] // empty')"
-              ;;
-          *)
-              # An exact build: "35245" or "35245-6efb47…".
-              LISTING="$(curl -fsSL https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/)" \
-                  || fail "could not reach the artifact listing"
-              PATH_PART="$(echo "$LISTING" | grep -oE "\./${CHANNEL}[0-9a-f-]*/fx\.tar\.xz" | head -1)"
-              [ -z "$PATH_PART" ] && fail "no artifact matches ${CHANNEL}"
-              URL="https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/${PATH_PART#./}"
-              ;;
+      case "${TXHOST_GAME_NAME:-fivem}" in
+          fivem) GAME_TYPE=gta5 ;;
+          redm)  GAME_TYPE=rdr3 ;;
+          *)     fail "unknown game: ${TXHOST_GAME_NAME}" ;;
       esac
+
+      if [ "$PLATFORM" = enhanced ]; then
+          [ "$GAME_TYPE" = rdr3 ] && fail "FiveM Enhanced is for GTA V only; RedM stays on the legacy platform"
+          # Cfx.re publishes one Enhanced build, only on its download page.
+          DATA="$(curl -fsSL https://docs.fivem.net/docs/server-download/ | sed -n 's/.*<script id="__NEXT_DATA__"[^>]*>\(.*\)<\/script>.*/\1/p' | sed 's/<\/script>.*//')"
+          URL="$(echo "$DATA" | jq -r '.props.pageProps.enhanced.linux[0].downloadURL // empty' 2>/dev/null)"
+          BUILD="$(echo "$DATA" | jq -r '.props.pageProps.enhanced.linux[0].subtitle // empty' 2>/dev/null | grep -oE '[0-9]+')"
+          CHANNEL=enhanced
+      else
+          CHANGELOG="$(curl -fsSL https://changelogs-live.fivem.net/api/changelog/versions/linux/server)" \
+              || fail "could not reach Cfx.re's changelog API"
+
+          case "$CHANNEL" in
+              recommended|optional|latest|critical)
+                  URL="$(echo "$CHANGELOG" | jq -r --arg c "$CHANNEL" '.[$c + "_download"] // empty')"
+                  ;;
+              *)
+                  # An exact build: "35245" or "35245-6efb47…".
+                  LISTING="$(curl -fsSL https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/)" \
+                      || fail "could not reach the artifact listing"
+                  PATH_PART="$(echo "$LISTING" | grep -oE "\./${CHANNEL}[0-9a-f-]*/fx\.tar\.xz" | head -1)"
+                  [ -z "$PATH_PART" ] && fail "no artifact matches ${CHANNEL}"
+                  URL="https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/${PATH_PART#./}"
+                  ;;
+          esac
+          BUILD="$(echo "${URL:-}" | grep -oE '/[0-9]+-[0-9a-f]+/' | tr -d '/')"
+      fi
 
       if [ -n "${DOWNLOAD_URL:-}" ]; then
           curl -fsI "$DOWNLOAD_URL" >/dev/null || fail "the download URL does not answer: ${DOWNLOAD_URL}"
           URL="$DOWNLOAD_URL"
       fi
 
-      [ -z "$URL" ] && fail "the changelog API returned no ${CHANNEL} artifact"
-      BUILD="$(echo "$URL" | grep -oE '/[0-9]+-[0-9a-f]+/' | tr -d '/')"
+      [ -z "${URL:-}" ] && fail "no ${PLATFORM} ${CHANNEL} artifact was found; set a download URL to install one by hand"
 
-      note "downloading artifact ${BUILD:-$URL}"
+      note "downloading ${PLATFORM} artifact ${BUILD:-$URL}"
       curl -fsSL "$URL" -o fx.tar.xz || fail "download failed"
 
-      # The previous artifact goes, so a downgrade cannot leave newer files behind.
+      # The previous artifact goes, so a downgrade or a platform switch cannot leave files behind.
       rm -rf alpine
       tar -xJf fx.tar.xz || fail "could not extract the artifact"
-      rm -f fx.tar.xz run.sh
+      rm -f fx.tar.xz run.sh license-attribution.txt
 
       # Default resources are added, never overwritten: edits made to them survive a reinstall.
       note "adding the default resources that are not there yet"
@@ -100,17 +117,12 @@ scripts:
           note "could not fetch cfx-server-data; keeping resources/ as it is"
       fi
 
-      case "${TXHOST_GAME_NAME:-fivem}" in
-          fivem) GAME_TYPE=gta5 ;;
-          redm)  GAME_TYPE=rdr3 ;;
-          *)     fail "unknown game: ${TXHOST_GAME_NAME}" ;;
-      esac
-
       if [ ! -f server.cfg ]; then
           note "writing a default server.cfg"
           cat > server.cfg <<'CFG'
-      # Only the lines the panel manages are rewritten on start: endpoints, sv_hostname,
-      # sv_maxclients, the license and Steam keys, and onesync. Everything else is yours.
+      # The panel keeps the endpoints, sv_hostname and sv_maxclients in step with the server's
+      # settings; the license key, Steam key and OneSync are passed on the command line.
+      # Everything else is yours.
 
       endpoint_add_tcp "0.0.0.0:30120"
       endpoint_add_udp "0.0.0.0:30120"
@@ -120,38 +132,150 @@ scripts:
       ensure spawnmanager
       ensure basic-gamemode
 
-      sv_scriptHookAllowed 0
-      sv_endpointprivacy true
-
       sets tags "default"
       sets locale "en-US"
       sets sv_projectName "My Wyvern server"
       sets sv_projectDesc "Hosted on Wyvern"
 
-      sv_hostname "My Wyvern server"
-      sv_maxclients 48
-
-      set steam_webApiKey "none"
-      set sv_licenseKey ""
-      set onesync on
+      set sv_hostname "My Wyvern server"
+      set sv_maxclients 48
       CFG
       fi
+
+      # Lines older versions of this egg wrote. onesync is fixed before server.cfg runs,
+      # sv_endpointPrivacy no longer exists, and the keys now come from the command line.
+      sed -i -E '/^set onesync /d; /^sv_endpointprivacy /Id; /^set sv_licenseKey ""$/d; /^set steam_webApiKey "none"$/d' server.cfg
 
       # One gamename line, rewritten on every install.
       sed -i '/^# set gamename/,+1d; /^set gamename /d' server.cfg
       printf '# set gamename\nset gamename "%s"\n' "$GAME_TYPE" >> server.cfg
 
-      mkdir -p .wyvern
-      jq -n --arg game "${TXHOST_GAME_NAME:-fivem}" --arg channel "$CHANNEL" --arg build "$BUILD" \
-          '{game: $game, channel: $channel, build: $build}' > .wyvern/install.json
+      note "writing the start script"
+      mkdir -p .wyvern/wyvern-console
+      cat > .wyvern/start.sh <<'START'
+      #!/bin/bash
+      # Written by the Wyvern FiveM egg on every install; edits are lost on reinstall.
+      #
+      # Wings sends console commands as "command\n" to a TTY, where FXServer's line editor waits for
+      # "\r", so the server reads a pipe instead. Under txAdmin the game server is a child whose stdin
+      # txAdmin owns: commands go through a file to the wyvern-console resource, and
+      # "quit" stops txAdmin itself, which would otherwise restart the game server.
 
-      note "done — artifact ${BUILD}"
+      cd /home/container || exit 1
+      # FXServer can segfault while quitting; no core file in the server folder.
+      ulimit -c 0
+
+      if [ -f alpine/opt/cfx-server/cfx-server ]; then
+          ENHANCED=1
+          SYSTEM=alpine/opt/cfx-server/system_resources
+          SERVER=("$PWD/alpine/lib/ld-musl-x86_64.so.1" --library-path "$PWD/alpine/lib/:$PWD/alpine/usr/lib/" -- "$PWD/alpine/opt/cfx-server/cfx-server")
+      else
+          ENHANCED=0
+          SYSTEM=alpine/opt/cfx-server/citizen/system_resources
+          SERVER=("$PWD/alpine/opt/cfx-server/ld-musl-x86_64.so.1" --library-path "$PWD/alpine/usr/lib/v8/:$PWD/alpine/lib/:$PWD/alpine/usr/lib/" -- "$PWD/alpine/opt/cfx-server/FXServer")
+      fi
+      SERVER+=(+set citizen_dir "$PWD/alpine/opt/cfx-server/citizen/")
+
+      exec 3<&0
+      TXADMIN=0
+      if [[ "${TXADMIN_ENABLE:-0}" =~ ^(1|true)$ ]]; then
+          if [ "$ENHANCED" = 1 ]; then
+              echo "[wyvern] txAdmin does not start on FiveM Enhanced for Linux yet: starting without it."
+          else
+              TXADMIN=1
+          fi
+      fi
+
+      if [ "$TXADMIN" = 1 ]; then
+          export TXHOST_DATA_PATH="${TXHOST_DATA_PATH:-/home/container/txData}"
+          export TXHOST_PROVIDER_NAME=Wyvern
+          [ -n "${FIVEM_LICENSE:-}" ] && export TXHOST_DEFAULT_CFXKEY="$FIVEM_LICENSE"
+          [ -n "${SERVER_PORT:-}" ] && [ "$SERVER_PORT" != 40120 ] && export TXHOST_FXS_PORT="$SERVER_PORT"
+
+          mkdir -p "$SYSTEM/wyvern-console"
+          cp -f .wyvern/wyvern-console/* "$SYSTEM/wyvern-console/"
+
+          # txAdmin starts the game server from its own server.cfg, so the bridge is ensured there.
+          PROFILE="$TXHOST_DATA_PATH/default/config.json"
+          DATA="$(grep -oE '"dataPath"[[:space:]]*:[[:space:]]*"[^"]*"' "$PROFILE" 2>/dev/null | sed -E 's/.*"([^"]*)"$/\1/')"
+          CFG="$(grep -oE '"cfgPath"[[:space:]]*:[[:space:]]*"[^"]*"' "$PROFILE" 2>/dev/null | sed -E 's/.*"([^"]*)"$/\1/')"
+          case "$CFG" in /*) ;; *) CFG="${DATA%/}/${CFG:-server.cfg}" ;; esac
+          if [ -n "$DATA" ] && [ -f "$CFG" ] && ! grep -q '^ensure wyvern-console' "$CFG"; then
+              printf '\n# Wyvern: lets the panel console reach this server.\nadd_ace resource.wyvern-console command allow\nensure wyvern-console\n' >> "$CFG"
+          fi
+
+          BRIDGE="$SYSTEM/wyvern-console/console.in"
+          : > "$BRIDGE"
+          "${SERVER[@]}" < /dev/null &
+          FX=$!
+          while IFS= read -r line; do
+              if [ "$line" = quit ]; then
+                  kill -INT "$FX"
+              else
+                  printf '%s\n' "$line" >> "$BRIDGE"
+              fi
+          done <&3 &
+      else
+          ARGS=(+set steam_webApiKey "${STEAM_WEBAPIKEY:-none}" +set sv_maxclients "${MAX_PLAYERS:-48}")
+          [ -n "${FIVEM_LICENSE:-}" ] && ARGS+=(+set sv_licenseKey "$FIVEM_LICENSE")
+          [ "$ENHANCED" = 0 ] && ARGS=(+set onesync "${ONESYNC:-on}" "${ARGS[@]}")
+
+          # After server.cfg, so the panel's values win over a stale line.
+          "${SERVER[@]}" +exec server.cfg "${ARGS[@]}" < <(cat <&3) &
+          FX=$!
+      fi
+
+      # The container lives exactly as long as the server.
+      trap 'kill -INT "$FX" 2>/dev/null' INT TERM
+      CODE=0
+      while kill -0 "$FX" 2>/dev/null; do
+          wait "$FX"
+          CODE=$?
+      done
+      exit "$CODE"
+      START
+
+      cat > .wyvern/wyvern-console/fxmanifest.lua <<'MANIFEST'
+      fx_version 'cerulean'
+      game 'common'
+      lua54 'yes'
+      description 'Wyvern: runs the panel console commands under txAdmin.'
+      server_script 'server.lua'
+      MANIFEST
+
+      cat > .wyvern/wyvern-console/server.lua <<'LUA'
+      -- start.sh appends each console line to console.in, next to this file.
+      local resource = GetCurrentResourceName()
+
+      CreateThread(function()
+          -- Commands written before this resource started are not replayed.
+          local offset = #(LoadResourceFile(resource, 'console.in') or '')
+
+          while true do
+              Wait(250)
+              local data = LoadResourceFile(resource, 'console.in') or ''
+              if #data < offset then offset = 0 end
+              local last = data:match('.*()\n', offset + 1)
+              if last and last > offset then
+                  for line in data:sub(offset + 1, last):gmatch('[^\r\n]+') do
+                      ExecuteCommand(line)
+                  end
+                  offset = last
+              end
+          end
+      end)
+      LUA
+
+      jq -n --arg game "${TXHOST_GAME_NAME:-fivem}" --arg platform "$PLATFORM" --arg channel "$CHANNEL" --arg build "${BUILD:-}" \
+          '{game: $game, platform: $platform, channel: $channel, build: $build}' > .wyvern/install.json
+
+      note "done — ${PLATFORM} artifact ${BUILD:-}"
     container: 'ghcr.io/pelican-eggs/installers:debian'
     entrypoint: bash
 variables:
   -
     name: 'License key'
-    description: "Your Cfx.re server key, from https://portal.cfx.re. Required unless txAdmin is on, where it can be set in txAdmin instead."
+    description: "Your Cfx.re server key, from https://portal.cfx.re. With txAdmin on, it is offered in txAdmin's setup."
     env_variable: FIVEM_LICENSE
     default_value: ''
     user_viewable: true
@@ -175,7 +299,7 @@ variables:
     sort: 2
   -
     name: 'OneSync'
-    description: 'on for OneSync, legacy for the older mode, off to disable it.'
+    description: 'on for OneSync, legacy for the older mode, off to disable it. FiveM Enhanced always runs OneSync.'
     env_variable: ONESYNC
     default_value: 'on'
     user_viewable: true
@@ -197,8 +321,19 @@ variables:
       - 'max:120'
     sort: 4
   -
+    name: 'Platform'
+    description: 'legacy for FiveM and RedM, enhanced for FiveM on GTA V Enhanced (early access, no txAdmin on Linux yet). Reinstall to switch.'
+    env_variable: FIVEM_PLATFORM
+    default_value: legacy
+    user_viewable: true
+    user_editable: true
+    rules:
+      - required
+      - 'in:legacy,enhanced'
+    sort: 5
+  -
     name: 'Artifact'
-    description: "recommended, optional, latest, critical, or an exact build such as 35245. Reinstall to switch."
+    description: "recommended, optional, latest, critical, or an exact build such as 35245. Legacy only. Reinstall to switch."
     env_variable: FIVEM_VERSION
     default_value: recommended
     user_viewable: true
@@ -207,10 +342,10 @@ variables:
       - required
       - string
       - 'regex:/^(recommended|optional|latest|critical|[0-9]+(-[0-9a-f]+)?)$/'
-    sort: 5
+    sort: 6
   -
     name: 'Download URL'
-    description: 'Overrides the artifact with a direct link to an fx.tar.xz. Install only.'
+    description: 'Overrides the artifact with a direct link to an fx.tar.xz or cfx-server tar.xz. Install only.'
     env_variable: DOWNLOAD_URL
     default_value: ''
     user_viewable: false
@@ -218,7 +353,7 @@ variables:
     rules:
       - nullable
       - string
-    sort: 6
+    sort: 7
   -
     name: 'Steam Web API key'
     description: "Your Steam Web API key, or none. https://steamcommunity.com/dev/apikey"
@@ -230,10 +365,10 @@ variables:
       - required
       - string
       - 'max:64'
-    sort: 7
+    sort: 8
   -
     name: 'txAdmin'
-    description: 'Run through txAdmin. Its first start prints a PIN in the console, and it then owns server.cfg and the start.'
+    description: 'Run through txAdmin. Its first start prints a PIN in the console, and it then owns its own server.cfg and the start. Legacy platform only for now.'
     env_variable: TXADMIN_ENABLE
     default_value: '0'
     user_viewable: true
@@ -241,7 +376,7 @@ variables:
     rules:
       - required
       - boolean
-    sort: 8
+    sort: 9
   -
     name: 'txAdmin port'
     description: 'Must be one of this server''s allocations, or txAdmin cannot be reached.'
@@ -253,7 +388,7 @@ variables:
       - required
       - integer
       - 'between:1024,65535'
-    sort: 9
+    sort: 10
   -
     name: 'Game'
     description: 'fivem or redm. txAdmin only offers recipes for this game.'
@@ -264,7 +399,7 @@ variables:
     rules:
       - required
       - 'in:fivem,redm'
-    sort: 10
+    sort: 11
   -
     name: 'txAdmin data path'
     description: 'Where txAdmin keeps its data.'
@@ -275,4 +410,4 @@ variables:
     rules:
       - required
       - string
-    sort: 11
+    sort: 12
